@@ -1,0 +1,17 @@
+# API
+fastapi
+uvicorn[standard]
+python-multipart
+requests
+pydantic
+
+# Ingestion
+pypdf
+python-docx
+python-pptx
+trafilatura
+duckduckgo_search
+
+# Generation
+reportlab
+
