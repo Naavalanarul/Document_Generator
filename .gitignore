@@ -20,3 +20,5 @@ env/
 # Project specific
 uploads/
 outputs/
+
+.agent/
