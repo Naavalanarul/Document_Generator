@@ -64,10 +64,13 @@ def models(mode: str = "offline", api_key: str = ""):
 
 
 @app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
-    dest = UPLOAD_DIR / f"{uuid.uuid4().hex}_{file.filename}"
-    dest.write_bytes(await file.read())
-    return {"file_path": str(dest)}
+async def upload_files(files: list[UploadFile] = File(...)):
+    paths = []
+    for f in files:
+        dest = UPLOAD_DIR / f"{uuid.uuid4().hex}_{f.filename}"
+        dest.write_bytes(await f.read())
+        paths.append(str(dest))
+    return {"file_paths": paths}
 
 
 @app.post("/generate")
@@ -78,7 +81,7 @@ async def generate(
     model: str        = Form("llama3.1"),
     api_key: str      = Form(""),
     instructions: str = Form(""),
-    file_path: str    = Form(None),
+    file_paths: str   = Form(None),
     url: str          = Form(None),
     search_query: str = Form(None),
 ):
@@ -99,9 +102,12 @@ async def generate(
 
     # 1. Extract source text
     if source_type == "file":
-        if not file_path or not Path(file_path).exists():
-            raise HTTPException(400, "file_path missing or does not exist")
-        source_text = extract_text(file_path)
+        if not file_paths:
+            raise HTTPException(400, "file_paths missing")
+        source_text = ""
+        for fp in file_paths.split(","):
+            if Path(fp).exists():
+                source_text += extract_text(fp) + "\n\n"
     elif source_type == "url":
         if not url:
             raise HTTPException(400, "url is required")

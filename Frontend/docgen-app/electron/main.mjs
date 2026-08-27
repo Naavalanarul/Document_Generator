@@ -59,17 +59,19 @@ ipcMain.handle('dialog:openFile', async (_event, options) => {
       { name: 'Documents', extensions: ['pdf', 'docx', 'pptx', 'txt', 'md', 'csv'] },
       { name: 'All Files', extensions: ['*'] },
     ],
-    properties: ['openFile'],
+    properties: ['openFile', 'multiSelections'],
     ...options,
   });
   if (result.canceled || result.filePaths.length === 0) return null;
-  const filePath = result.filePaths[0];
-  const stats = fs.statSync(filePath);
-  return {
-    filePath,
-    fileName: path.basename(filePath),
-    fileSize: stats.size,
-  };
+  
+  return result.filePaths.map(filePath => {
+    const stats = fs.statSync(filePath);
+    return {
+      filePath,
+      fileName: path.basename(filePath),
+      fileSize: stats.size,
+    };
+  });
 });
 
 // Native save dialog + write downloaded blob
