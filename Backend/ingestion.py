@@ -20,13 +20,20 @@ from pypdf import PdfReader
 from docx import Document as DocxDocument
 from pptx import Presentation
 
+# Extensions the ingestion layer can handle — used by upload validation too.
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".txt", ".md", ".csv"}
+
+# Minimum average chars/page threshold to consider a PDF as having real text
+# (scanned/image-only PDFs typically yield near-zero text per page).
+_MIN_CHARS_PER_PAGE = 50
+
 
 # ── Shared cleanup ─────────────────────────────────────────────────────────────
 
 def clean_text(text: str) -> str:
     """
     Normalise extraction noise common across binary formats:
-    - PDF/DOCX bullet glyphs (\x7f, \uf0b7, etc.) → real bullet char
+    - PDF/DOCX bullet glyphs (\\x7f, \\uf0b7, etc.) → real bullet char
     - Collapse 3+ blank lines to 2
     - Strip trailing whitespace per line
     """
@@ -41,7 +48,18 @@ def clean_text(text: str) -> str:
 def extract_pdf(file_path: str) -> str:
     reader = PdfReader(file_path)
     pages = [page.extract_text() or "" for page in reader.pages]
-    return clean_text("\n\n".join(p for p in pages if p.strip()))
+    raw = "\n\n".join(p for p in pages if p.strip())
+
+    # Detect scanned / image-only PDFs
+    page_count = len(reader.pages)
+    if page_count > 0 and len(raw.strip()) / page_count < _MIN_CHARS_PER_PAGE:
+        raise ValueError(
+            "This PDF appears to be scanned/image-based — "
+            "OCR is not currently supported. "
+            f"({len(raw.strip())} chars extracted from {page_count} page(s))"
+        )
+
+    return clean_text(raw)
 
 
 def extract_docx(file_path: str) -> str:
@@ -58,9 +76,17 @@ def extract_docx(file_path: str) -> str:
             parts.append(f"{'#' * level} {para.text}")
         else:
             parts.append(para.text)
+
+    # Preserve table structure with markers so the LLM can recognize it
     for table in doc.tables:
+        rows = []
         for row in table.rows:
-            parts.append(" | ".join(c.text.strip() for c in row.cells))
+            rows.append(" | ".join(c.text.strip() for c in row.cells))
+        if rows:
+            parts.append("[TABLE]")
+            parts.extend(rows)
+            parts.append("[/TABLE]")
+
     return clean_text("\n".join(parts))
 
 

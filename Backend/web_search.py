@@ -5,10 +5,15 @@ Fetches top N results and extracts readable body text from each page.
 from ingestion import extract_text_from_url
 
 
-def search_and_fetch(query: str, max_results: int = 3) -> str:
-    from duckduckgo_search import DDGS
+def search_and_fetch(query: str, max_results: int = 3) -> tuple[str, list[str]]:
+    """
+    Search DuckDuckGo, fetch readable text from the top results.
+    Returns (combined_text, source_urls).
+    """
+    from ddgs import DDGS
 
     combined = []
+    source_urls = []
     with DDGS() as ddgs:
         results = list(ddgs.text(query, max_results=max_results))
 
@@ -20,10 +25,11 @@ def search_and_fetch(query: str, max_results: int = 3) -> str:
             text = extract_text_from_url(url)
             if text:
                 combined.append(f"Source: {url}\n\n{text[:8000]}")
+                source_urls.append(url)
         except Exception:
             continue  # skip pages that fail to fetch
 
     if not combined:
         raise ValueError(f"No readable content found for query: {query!r}")
 
-    return "\n\n=====\n\n".join(combined)
+    return "\n\n=====\n\n".join(combined), source_urls

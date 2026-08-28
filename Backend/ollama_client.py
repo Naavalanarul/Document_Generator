@@ -2,7 +2,6 @@
 Works identically for local (offline) and Ollama Cloud (online) —
 the LLMConfig passed in determines which endpoint and headers to use.
 """
-import json
 import requests
 from typing import Optional
 
@@ -73,45 +72,3 @@ class OllamaClient:
         r.raise_for_status()
         return r.json()["response"]
 
-    def generate_json(
-        self,
-        prompt: str,
-        system: Optional[str] = None,
-        temperature: float = 0.2,
-        retries: int = 2,
-    ) -> dict:
-        """
-        Generate and parse JSON, with fence-stripping and brace-matching
-        recovery for models that ignore format='json'.
-        NOTE: this only fixes SYNTAX errors (malformed JSON).
-              Schema validation is handled separately in json_generator.py.
-        """
-        last_err = None
-        for _ in range(retries + 1):
-            raw = self.generate(
-                prompt, system=system, temperature=temperature, json_mode=True
-            )
-            cleaned = raw.strip()
-
-            # Strip markdown code fences some models add despite format=json
-            if cleaned.startswith("```"):
-                lines = cleaned.strip("`").splitlines()
-                cleaned = "\n".join(
-                    lines[1:] if lines[0].lower().startswith("json") else lines
-                )
-
-            try:
-                return json.loads(cleaned)
-            except json.JSONDecodeError as e:
-                last_err = e
-                # Best-effort: find the outermost {...} block
-                start, end = cleaned.find("{"), cleaned.rfind("}")
-                if start != -1 and end > start:
-                    try:
-                        return json.loads(cleaned[start : end + 1])
-                    except json.JSONDecodeError as e2:
-                        last_err = e2
-
-        raise ValueError(
-            f"Model did not return valid JSON after {retries + 1} attempts: {last_err}"
-        )

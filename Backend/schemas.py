@@ -11,6 +11,9 @@ Design decisions:
     a named slot to put one — prevents hallucinated key names
   - DocumentPlan and PresentationPlan are separate schemas because slides
     have fundamentally different structural constraints from doc sections
+  - Table model added so tabular data round-trips through the pipeline
+    instead of being flattened into paragraph text
+  - sources tracks provenance URLs from web_search/url modes
 """
 from typing import List
 from pydantic import BaseModel, Field
@@ -25,18 +28,26 @@ class Bullet(BaseModel):
     # is almost always a sign the content needs restructuring, not more indents.
 
 
+class Table(BaseModel):
+    """A simple table: a header row and zero-or-more data rows."""
+    headers: List[str]
+    rows: List[List[str]] = Field(default_factory=list)
+
+
 # ── Word + PDF ─────────────────────────────────────────────────────────────────
 
 class Section(BaseModel):
     heading: str
     paragraphs: List[str] = Field(default_factory=list)
     bullets: List[Bullet] = Field(default_factory=list)
+    tables: List[Table] = Field(default_factory=list)
 
 
 class DocumentPlan(BaseModel):
     title: str
     subtitle: str = ""
     sections: List[Section] = Field(default_factory=list)
+    sources: List[str] = Field(default_factory=list)
 
 
 # ── PowerPoint ─────────────────────────────────────────────────────────────────
@@ -51,3 +62,4 @@ class PresentationPlan(BaseModel):
     title: str
     subtitle: str = ""
     slides: List[Slide] = Field(default_factory=list)
+    sources: List[str] = Field(default_factory=list)

@@ -7,12 +7,57 @@ Each retry re-states the ORIGINAL prompt + only the latest error,
 keeping prompt size constant across retries (never grows unboundedly).
 """
 import json
+import logging
+import re
 from typing import Optional
 
 import requests
 from pydantic import BaseModel, ValidationError
 
+log = logging.getLogger(__name__)
+
 OLLAMA_HOST = "http://localhost:11434"
+
+
+def sanitize_json_response(raw: str) -> str:
+    """
+    Best-effort recovery for LLM outputs that wrap JSON in markdown
+    fences or include preamble/trailing text.
+
+    Strategy (in order):
+      1. Strip ```json ... ``` fences.
+      2. If the result still isn't parseable, extract the outermost {...} block.
+    """
+    cleaned = raw.strip()
+
+    # Strip markdown code fences some models add despite format=json
+    if cleaned.startswith("```"):
+        # Remove opening fence line and closing fence
+        cleaned = re.sub(r"^```(?:json)?\s*\n?", "", cleaned, count=1)
+        cleaned = re.sub(r"\n?```\s*$", "", cleaned, count=1)
+        cleaned = cleaned.strip()
+
+    # If it already looks like valid JSON, return as-is
+    try:
+        json.loads(cleaned)
+        return cleaned
+    except json.JSONDecodeError:
+        pass
+
+    # Best-effort: find the outermost {...} block
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end > start:
+        candidate = cleaned[start : end + 1]
+        try:
+            json.loads(candidate)
+            return candidate
+        except json.JSONDecodeError:
+            pass
+
+    # Return what we have — let the caller's json.loads() produce
+    # the actual error for the retry loop
+    return cleaned
 
 
 def call_llm(
@@ -65,21 +110,24 @@ def generate_json(
     current_prompt = prompt
 
     for attempt in range(max_retries):
-        print(f"  [LLM] Attempt {attempt + 1}/{max_retries}...")
+        log.info("  [LLM] Attempt %d/%d...", attempt + 1, max_retries)
         raw = call_llm(current_prompt, model=model, system=system, host=host, headers=headers)
+
+        # Fence-stripping + brace-matching recovery before parsing
+        sanitized = sanitize_json_response(raw)
 
         try:
             # Layer 1: JSON syntax
-            parsed = json.loads(raw)
+            parsed = json.loads(sanitized)
 
             # Layer 2: schema shape
             validated = pydantic_model.model_validate(parsed)
 
-            print(f"  [LLM] Success on attempt {attempt + 1}")
+            log.info("  [LLM] Success on attempt %d", attempt + 1)
             return validated
 
         except json.JSONDecodeError as e:
-            print(f"  [LLM] JSON syntax error: {e}")
+            log.warning("  [LLM] JSON syntax error: %s", e)
             current_prompt = (
                 f"{prompt}\n\n"
                 f"Your last response was not valid JSON. Error:\n{e}\n\n"
@@ -88,7 +136,7 @@ def generate_json(
             )
 
         except ValidationError as e:
-            print(f"  [LLM] Schema validation error:\n{e}")
+            log.warning("  [LLM] Schema validation error:\n%s", e)
             current_prompt = (
                 f"{prompt}\n\n"
                 f"Your last response was valid JSON but did not match the required schema.\n"

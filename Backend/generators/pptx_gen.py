@@ -16,7 +16,7 @@ def generate_pptx(plan: PresentationPlan, output_path: str) -> str:
     if plan.subtitle and len(title_slide.placeholders) > 1:
         title_slide.placeholders[1].text = plan.subtitle
 
-    # Content slides
+    # Content slides (including References slide if appended by planner)
     for slide_plan in plan.slides:
         slide = prs.slides.add_slide(prs.slide_layouts[1])
         slide.shapes.title.text = slide_plan.title
