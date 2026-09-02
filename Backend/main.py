@@ -94,9 +94,9 @@ async def lifespan(app: FastAPI):
             "Startup cleanup: removed %d upload(s), %d output(s) older than %dh",
             n_up, n_out, FILE_EXPIRY_HOURS,
         )
-    # Initialize crawler database
+    # Initialize scraper database
     await init_crawler_db()
-    log.info("Crawler database initialized")
+    log.info("Scraper database initialized")
     yield
 
 
@@ -110,7 +110,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Crawler router
+# Scraper router
 app.include_router(crawler_router)
 
 

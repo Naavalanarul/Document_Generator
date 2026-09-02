@@ -1,5 +1,5 @@
 """
-Tests for the web crawler.
+Tests for the web scraper.
 
 Covers:
   - URL normalization
@@ -7,11 +7,13 @@ Covers:
   - Link extraction
   - Title & text snippet extraction
   - CrawlOptions validation
+  - Scrapling-backed scraping flow
   - DB schema (SQL logic via plain sqlite3)
 """
-import sys
 import os
+import asyncio
 import sqlite3
+import sys
 import time
 from pathlib import Path
 
@@ -25,6 +27,7 @@ from pydantic import ValidationError
 
 from crawler.models import CrawlOptions, PageResult, CrawlResult, CrawlJob, JobStatus
 from crawler.crawler import (
+    crawl,
     normalize_url,
     extract_links,
     extract_title,
@@ -155,24 +158,75 @@ class TestExtractTextSnippet:
 class TestCrawlOptions:
     def test_defaults(self):
         opts = CrawlOptions(start_url="https://example.com")
-        assert opts.max_depth == 2
-        assert opts.max_pages == 200
-        assert opts.concurrency == 5
+        assert opts.retries == 2
+        assert opts.timeout_seconds == 15
         assert opts.same_host_only is True
 
-    def test_max_depth_bounds(self):
+    def test_timeout_bounds(self):
         with pytest.raises(ValidationError):
-            CrawlOptions(start_url="https://example.com", max_depth=-1)
+            CrawlOptions(start_url="https://example.com", timeout_seconds=0)
         with pytest.raises(ValidationError):
-            CrawlOptions(start_url="https://example.com", max_depth=11)
+            CrawlOptions(start_url="https://example.com", timeout_seconds=121)
 
-    def test_max_pages_bounds(self):
+    def test_retries_bounds(self):
         with pytest.raises(ValidationError):
-            CrawlOptions(start_url="https://example.com", max_pages=0)
+            CrawlOptions(start_url="https://example.com", retries=-1)
+        with pytest.raises(ValidationError):
+            CrawlOptions(start_url="https://example.com", retries=11)
 
-    def test_concurrency_bounds(self):
+    def test_retry_delay_bounds(self):
         with pytest.raises(ValidationError):
-            CrawlOptions(start_url="https://example.com", concurrency=0)
+            CrawlOptions(start_url="https://example.com", retry_delay_seconds=-0.1)
+
+
+class _FakeResponse:
+    def __init__(self, url: str, status: int, headers: dict[str, str], html_content: str):
+        self.url = url
+        self.status = status
+        self.headers = headers
+        self.html_content = html_content
+
+
+class TestScrapeFlow:
+    def test_scrape_uses_scrapling_fetcher(self, monkeypatch):
+        calls = []
+
+        async def fake_get(url, **kwargs):
+            calls.append((url, kwargs))
+            return _FakeResponse(
+                url="https://example.com/final",
+                status=200,
+                headers={"content-type": "text/html; charset=utf-8"},
+                html_content=SAMPLE_HTML,
+            )
+
+        monkeypatch.setattr("crawler.crawler.AsyncFetcher.get", fake_get)
+        monkeypatch.setattr("crawler.crawler.is_private_ip", lambda _hostname: False)
+        opts = CrawlOptions(start_url="https://example.com/start")
+        result = asyncio.run(crawl(opts))
+
+        assert result.pages_crawled == 1
+        assert result.pages_failed == 0
+        assert len(result.pages) == 1
+        assert result.pages[0].title == "Test Page"
+        assert "https://example.com/about" in result.pages[0].links_found
+        assert calls[0][1]["timeout"] == opts.timeout_seconds
+        assert calls[0][1]["retries"] == opts.retries
+        assert calls[0][1]["retry_delay"] == opts.retry_delay_seconds
+
+    def test_scrape_failure_is_recorded(self, monkeypatch):
+        async def fake_get(url, **kwargs):
+            raise TimeoutError("timed out")
+
+        monkeypatch.setattr("crawler.crawler.AsyncFetcher.get", fake_get)
+        monkeypatch.setattr("crawler.crawler.is_private_ip", lambda _hostname: False)
+        opts = CrawlOptions(start_url="https://example.com")
+        result = asyncio.run(crawl(opts))
+
+        assert result.pages_crawled == 0
+        assert result.pages_failed == 1
+        assert len(result.pages) == 1
+        assert "timed out" in (result.pages[0].error or "")
 
 
 # ── DB Tests (plain sqlite3 to avoid aiosqlite thread issues in tests) ────────

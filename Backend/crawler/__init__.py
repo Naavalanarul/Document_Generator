@@ -1,5 +1,5 @@
 """
-Web crawler package.
+Web scraper package.
 
 Public API:
   from crawler import crawl, CrawlOptions, CrawlResult

@@ -16,9 +16,8 @@ ddgs>=7.0,<8.0
 reportlab>=4.2,<5.0
 
 # Crawler
-aiohttp>=3.10,<4.0
 aiosqlite>=0.20,<1.0
-beautifulsoup4>=4.12,<5.0
+scrapling>=0.4.15,<1.0
 
 # Testing
 pytest>=8.0,<9.0
