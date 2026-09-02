@@ -1,9 +1,9 @@
 """
-Pydantic models for the web crawler.
+Pydantic models for the web scraper.
 
-CrawlOptions  — configuration for a crawl run
+CrawlOptions  — configuration for a scrape run
 PageResult    — data captured from a single page
-CrawlResult   — aggregate result of a crawl run
+CrawlResult   — aggregate result of a scrape run
 CrawlJob      — persistent job record (maps to SQLite row)
 """
 from __future__ import annotations
@@ -24,15 +24,14 @@ class JobStatus(str, Enum):
 
 
 class CrawlOptions(BaseModel):
-    """Tunables for a crawl run.  All have safe defaults."""
+    """Tunables for a scrape run.  All have safe defaults."""
     start_url: str
-    max_depth: int = Field(default=2, ge=0, le=10)
-    max_pages: int = Field(default=200, ge=1, le=10000)
-    concurrency: int = Field(default=5, ge=1, le=50)
     same_host_only: bool = True
-    respect_robots: bool = True
     timeout_seconds: int = Field(default=15, ge=1, le=120)
-    user_agent: str = "DocGenCrawler/1.0 (+https://github.com/Naavalanarul/Document_Generator)"
+    retries: int = Field(default=2, ge=0, le=10)
+    retry_delay_seconds: float = Field(default=1.0, ge=0.0, le=30.0)
+    follow_redirects: bool = True
+    user_agent: str = "DocGenScraper/1.0 (+https://github.com/Naavalanarul/Document_Generator)"
 
 
 class PageResult(BaseModel):

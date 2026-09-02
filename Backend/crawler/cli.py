@@ -1,12 +1,12 @@
 """
-CLI entrypoint for the web crawler.
+CLI entrypoint for the web scraper.
 
 Usage:
-  python -m crawler.cli crawl <url> [--max-depth N] [--max-pages N] [--concurrency N] [--output FILE]
+  python -m crawler.cli scrape <url> [--timeout-seconds N] [--retries N] [--output FILE]
 
 Examples:
-  python -m crawler.cli crawl https://example.com
-  python -m crawler.cli crawl https://example.com --max-depth 1 --max-pages 5 --output results.json
+  python -m crawler.cli scrape https://example.com
+  python -m crawler.cli scrape https://example.com --retries 3 --output results.json
 """
 from __future__ import annotations
 
@@ -22,33 +22,36 @@ from crawler.crawler import crawl
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="crawler",
-        description="Web crawler CLI",
+        description="Web scraper CLI",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # crawl subcommand
-    crawl_parser = subparsers.add_parser("crawl", help="Crawl a website")
-    crawl_parser.add_argument("url", help="Start URL to crawl")
-    crawl_parser.add_argument("--max-depth", type=int, default=2, help="Max crawl depth (default: 2)")
-    crawl_parser.add_argument("--max-pages", type=int, default=200, help="Max pages to crawl (default: 200)")
-    crawl_parser.add_argument("--concurrency", type=int, default=5, help="Concurrent requests (default: 5)")
-    crawl_parser.add_argument("--no-same-host", action="store_true", help="Allow crawling external hosts")
-    crawl_parser.add_argument("--no-robots", action="store_true", help="Ignore robots.txt")
-    crawl_parser.add_argument("--output", "-o", type=str, default=None, help="Output JSON file (default: stdout)")
+    # scrape subcommand
+    scrape_parser = subparsers.add_parser("scrape", help="Scrape a website")
+    scrape_parser.add_argument("url", help="URL to scrape")
+    scrape_parser.add_argument("--no-same-host", action="store_true", help="Allow extracted links from external hosts")
+    scrape_parser.add_argument("--timeout-seconds", type=int, default=15, help="Request timeout (default: 15)")
+    scrape_parser.add_argument("--retries", type=int, default=2, help="Retry attempts (default: 2)")
+    scrape_parser.add_argument("--retry-delay-seconds", type=float, default=1.0, help="Retry delay (default: 1.0)")
+    scrape_parser.add_argument("--no-redirects", action="store_true", help="Disable redirects")
+    scrape_parser.add_argument("--output", "-o", type=str, default=None, help="Output JSON file (default: stdout)")
 
     args = parser.parse_args()
 
-    if args.command == "crawl":
+    if args.command == "scrape":
         options = CrawlOptions(
             start_url=args.url,
-            max_depth=args.max_depth,
-            max_pages=args.max_pages,
-            concurrency=args.concurrency,
             same_host_only=not args.no_same_host,
-            respect_robots=not args.no_robots,
+            timeout_seconds=args.timeout_seconds,
+            retries=args.retries,
+            retry_delay_seconds=args.retry_delay_seconds,
+            follow_redirects=not args.no_redirects,
         )
 
-        print(f"🕷️  Crawling {args.url} (depth={options.max_depth}, max={options.max_pages})...", file=sys.stderr)
+        print(
+            f"🕷️  Scraping {args.url} (timeout={options.timeout_seconds}s, retries={options.retries})...",
+            file=sys.stderr,
+        )
 
         result = asyncio.run(crawl(
             options,
@@ -65,7 +68,7 @@ def main() -> None:
             print(output)
 
         print(
-            f"\n📊 Crawled {result.pages_crawled} pages, "
+            f"\n📊 Scraped {result.pages_crawled} pages, "
             f"{result.pages_failed} failed, "
             f"{result.elapsed_seconds}s elapsed",
             file=sys.stderr,

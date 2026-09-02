@@ -1,10 +1,10 @@
 """
-FastAPI router for the web crawler.
+FastAPI router for the web scraper.
 
 Endpoints:
-  POST /api/crawl            — start a new crawl job
-  GET  /api/crawl/jobs       — list all crawl jobs
-  GET  /api/crawl/jobs/{id}  — get job details + crawled pages
+  POST /api/crawl            — start a new scrape job
+  GET  /api/crawl/jobs       — list all scrape jobs
+  GET  /api/crawl/jobs/{id}  — get job details + scraped pages
   POST /api/crawl/jobs/{id}/cancel — cancel a running job
 
 Protected by the same X-API-Key middleware as the rest of the app
@@ -25,18 +25,18 @@ from crawler.crawler import crawl
 
 log = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/crawl", tags=["crawler"])
+router = APIRouter(prefix="/api/crawl", tags=["scraper"])
 
 
 # ── Request / response models ─────────────────────────────────────────────────
 
 class StartCrawlRequest(BaseModel):
     url: str
-    max_depth: int = 2
-    max_pages: int = 200
-    concurrency: int = 5
     same_host_only: bool = True
-    respect_robots: bool = True
+    timeout_seconds: int = Field(default=15, ge=1, le=120)
+    retries: int = Field(default=2, ge=0, le=10)
+    retry_delay_seconds: float = Field(default=1.0, ge=0.0, le=30.0)
+    follow_redirects: bool = True
 
 
 class StartCrawlResponse(BaseModel):
@@ -51,7 +51,7 @@ _cancel_events: dict[str, asyncio.Event] = {}
 
 
 async def _run_crawl_job(job_id: str, options: CrawlOptions) -> None:
-    """Background task that runs the crawl and updates the DB."""
+    """Background task that runs the scraper and updates the DB."""
     cancel_event = asyncio.Event()
     _cancel_events[job_id] = cancel_event
 
@@ -92,16 +92,16 @@ async def _run_crawl_job(job_id: str, options: CrawlOptions) -> None:
 
 @router.post("", response_model=StartCrawlResponse)
 async def start_crawl(req: StartCrawlRequest, background_tasks: BackgroundTasks):
-    """Start a new crawl job.  Returns immediately with a job_id."""
+    """Start a new scrape job.  Returns immediately with a job_id."""
     job_id = uuid.uuid4().hex
 
     options = CrawlOptions(
         start_url=req.url,
-        max_depth=req.max_depth,
-        max_pages=req.max_pages,
-        concurrency=req.concurrency,
         same_host_only=req.same_host_only,
-        respect_robots=req.respect_robots,
+        timeout_seconds=req.timeout_seconds,
+        retries=req.retries,
+        retry_delay_seconds=req.retry_delay_seconds,
+        follow_redirects=req.follow_redirects,
     )
 
     await db.create_job(job_id, options)
@@ -115,14 +115,14 @@ async def start_crawl(req: StartCrawlRequest, background_tasks: BackgroundTasks)
 
 @router.get("/jobs")
 async def list_jobs(limit: int = 50, status: str = None):
-    """List crawl jobs, optionally filtered by status."""
+    """List scrape jobs, optionally filtered by status."""
     jobs = await db.list_jobs(limit=limit, status_filter=status)
     return {"jobs": [j.model_dump() for j in jobs]}
 
 
 @router.get("/jobs/{job_id}")
 async def get_job(job_id: str, include_pages: bool = True):
-    """Get job details and optionally its crawled pages."""
+    """Get job details and optionally its scraped pages."""
     job = await db.get_job(job_id)
     if not job:
         raise HTTPException(404, f"Crawl job {job_id!r} not found")
